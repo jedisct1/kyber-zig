@@ -105,7 +105,7 @@ const std = @import("std");
 
 const testing = std.testing;
 const assert = std.debug.assert;
-const RndGen = std.rand.DefaultPrng;
+const RndGen = std.Random.DefaultPrng;
 const sha3 = std.crypto.hash.sha3;
 
 // Q is the parameter q ≡ 3329 = 2¹¹ + 2¹⁰ + 2⁸ + 1.
@@ -282,9 +282,9 @@ fn Kyber(comptime p: Params) type {
                 s += innerSk.packedSize;
                 ret.pk = innerPk.unpack(buf[s .. s + innerPk.packedSize]);
                 s += innerPk.packedSize;
-                std.mem.copy(u8, &ret.hpk, buf[s .. s + hSize]);
+                @memcpy(&ret.hpk, buf[s .. s + hSize]);
                 s += hSize;
-                std.mem.copy(u8, &ret.z, buf[s .. s + sharedKeySize]);
+                @memcpy(&ret.z, buf[s .. s + sharedKeySize]);
                 return ret;
             }
         };
@@ -297,14 +297,14 @@ fn Kyber(comptime p: Params) type {
         // Internals below.
         fn keyFromSeed(seed: *const [seedSize]u8) KeyPair {
             var ret: KeyPair = undefined;
-            std.mem.copy(u8, &ret.sk.z, seed[innerSeedSize..seedSize]);
+            @memcpy(&ret.sk.z, seed[innerSeedSize..seedSize]);
 
             // Generate inner key
             innerKeyFromSeed(seed[0..innerSeedSize], &ret.pk.pk, &ret.sk.sk);
             ret.sk.pk = ret.pk.pk;
 
             // Copy over z from seed.
-            std.mem.copy(u8, &ret.sk.z, seed[innerSeedSize..seedSize]);
+            @memcpy(&ret.sk.z, seed[innerSeedSize..seedSize]);
 
             // Compute H(pk)
             var h = sha3.Sha3_256.init(.{});
@@ -361,7 +361,7 @@ fn Kyber(comptime p: Params) type {
             fn unpack(buf: *const [packedSize]u8) innerPk {
                 var ret: innerPk = undefined;
                 ret.th = V.unpack(buf[0..V.packedSize]).normalize();
-                std.mem.copy(u8, &ret.rho, buf[V.packedSize..packedSize]);
+                @memcpy(&ret.rho, buf[V.packedSize..packedSize]);
                 ret.aT = M.uniform(&ret.rho, true);
                 return ret;
             }
@@ -398,7 +398,7 @@ fn Kyber(comptime p: Params) type {
             var h = sha3.Sha3_512.init(.{});
             h.update(seed);
             h.final(&expandedSeed);
-            std.mem.copy(u8, &pk.rho, expandedSeed[0..32]);
+            @memcpy(&pk.rho, expandedSeed[0..32]);
             const sigma = expandedSeed[32..64];
             pk.aT = M.uniform(&pk.rho, false); // Expand ρ to A; we'll transpose later on
 
@@ -504,7 +504,7 @@ test "invNTTReductions bounds" {
     var r: usize = 0;
     var layer: u6 = 1;
     while (layer < 8) : (layer += 1) {
-        var w: usize = @as(usize, 1) << layer;
+        const w: usize = @as(usize, 1) << layer;
         i = 0;
 
         while (i + w < 256) {
@@ -518,12 +518,12 @@ test "invNTTReductions bounds" {
         }
 
         while (true) {
-            var j: i16 = invNTTReductions[r];
+            const j: i16 = invNTTReductions[r];
             r += 1;
             if (j < 0) {
                 break;
             }
-            xs[@intCast(usize, j)] = 1;
+            xs[@as(usize, @intCast(j))] = 1;
         }
     }
 }
@@ -559,7 +559,7 @@ fn invertMod(a: anytype, p: @TypeOf(a)) @TypeOf(a) {
 
 // Reduce mod q for testing.
 fn modQ32(x: i32) i16 {
-    var y: i16 = @intCast(i16, @rem(x, @as(i32, Q)));
+    var y: i16 = @as(i16, @intCast(@rem(x, @as(i32, Q))));
     if (y < 0) {
         y += Q;
     }
@@ -574,15 +574,15 @@ fn montReduce(x: i32) i16 {
     // Note gcd(2¹⁶, q) = 1 as q is prime.  Write q' := 62209 = q⁻¹ mod R.
     // First we compute
     //
-    //	m := ((x mod R) q') mod R
+    //  m := ((x mod R) q') mod R
     //         = x q' mod R
-    //	   = int16(x q')
-    //	   = int16(int32(x) * int32(q'))
+    //     = int16(x q')
+    //     = int16(int32(x) * int32(q'))
     //
     // Note that x q' might be as big as 2³² and could overflow the int32
     // multiplication in the last line.  However for any int32s a and b,
     // we have int32(int64(a)*int64(b)) = int32(a*b) and so the result is ok.
-    const m: i16 = @truncate(i16, @truncate(i32, x *% qInv));
+    const m: i16 = @as(i16, @truncate(@as(i32, @truncate(x *% qInv))));
 
     // Note that x - m q is divisable by R; indeed modulo R we have
     //
@@ -596,7 +596,7 @@ fn montReduce(x: i32) i16 {
     // and as both 2¹⁵ q ≤ m q, x < 2¹⁵ q, we have
     // 2¹⁶ q ≤ x - m q < 2¹⁶ and so q ≤ (x - m q) / R < q as desired.
     const yR = x - @as(i32, m) * @as(i32, Q);
-    return @bitCast(i16, @truncate(u16, @bitCast(u32, yR) >> 16));
+    return @as(i16, @bitCast(@as(u16, @truncate(@as(u32, @bitCast(yR)) >> 16))));
 }
 
 test "Test montReduce" {
@@ -621,7 +621,7 @@ fn feToMont(x: i16) i16 {
 test "Test feToMont" {
     var x: i32 = -(1 << 15);
     while (x < 1 << 15) : (x += 1) {
-        const y: i16 = feToMont(@intCast(i16, x));
+        const y: i16 = feToMont(@as(i16, @intCast(x)));
         try testing.expectEqual(modQ32(@as(i32, y)), modQ32(x * RModQ));
     }
 }
@@ -648,14 +648,14 @@ fn feBarrettReduce(x: i16) i16 {
     // To actually compute this, note that
     //
     //  ⌊x 20156/2²⁶⌋ = (20159 x) >> 26.
-    return x -% @intCast(i16, (@as(i32, x) * 20159) >> 26) *% Q;
+    return x -% @as(i16, @intCast((@as(i32, x) * 20159) >> 26)) *% Q;
 }
 
 test "Test Barrett reduction" {
     var x: i32 = -(1 << 15);
     while (x < 1 << 15) : (x += 1) {
-        var y1: i16 = feBarrettReduce(@intCast(i16, x));
-        var y2: i16 = @mod(@intCast(i16, x), Q);
+        var y1: i16 = feBarrettReduce(@as(i16, @intCast(x)));
+        const y2: i16 = @mod(@as(i16, @intCast(x)), Q);
         if (x < 0 and @rem(-x, Q) == 0) {
             y1 -= Q;
         }
@@ -674,9 +674,9 @@ fn csubq(x: i16) i16 {
 test "Test csubq" {
     var x: i32 = -29439;
     while (x < 1 << 15) : (x += 1) {
-        var y1: i16 = csubq(@intCast(i16, x));
-        var y2: i16 = @intCast(i16, x);
-        if (@intCast(i16, x) >= Q) {
+        const y1: i16 = csubq(@as(i16, @intCast(x)));
+        var y2: i16 = @as(i16, @intCast(x));
+        if (@as(i16, @intCast(x)) >= Q) {
             y2 -= Q;
         }
         try testing.expectEqual(y1, y2);
@@ -719,8 +719,8 @@ fn computeZetas() [128]i16 {
     var ret: [128]i16 = undefined;
     var i: i32 = 0;
     while (i < 128) : (i += 1) {
-        const t = @intCast(i16, mpow(@as(i32, zeta), brv(i, 7), Q));
-        ret[@intCast(usize, i)] = csubq(feBarrettReduce(feToMont(t)));
+        const t = @as(i16, @intCast(mpow(@as(i32, zeta), brv(i, 7), Q)));
+        ret[@as(usize, @intCast(i))] = csubq(feBarrettReduce(feToMont(t)));
     }
     return ret;
 }
@@ -736,7 +736,7 @@ const Poly = struct {
     cs: [N]i16,
 
     const packedSize = N / 2 * 3;
-    const zero: Poly = .{ .cs = .{0} ** N };
+    const zero: Poly = .{ .cs = @splat(0) };
 
     fn add(a: Poly, b: Poly) Poly {
         var ret: Poly = undefined;
@@ -846,7 +846,7 @@ const Poly = struct {
             var offset: usize = 0;
             while (offset < N - l) : (offset += 2 * l) {
                 k += 1;
-                var z: i32 = @as(i32, zetas[k]);
+                const z: i32 = @as(i32, zetas[k]);
 
                 // j loops over each butterfly in the row group.
                 var j: usize = offset;
@@ -885,7 +885,7 @@ const Poly = struct {
                 // we can use the existing zetas table instead of
                 // keeping a separate invZetas table as in Dilithium.
 
-                var minZeta = @as(i32, zetas[k]);
+                const minZeta = @as(i32, zetas[k]);
                 k -= 1;
 
                 var j = offset;
@@ -903,12 +903,12 @@ const Poly = struct {
             // We let the invNTTReductions instruct us which coefficients to
             // Barrett reduce.
             while (true) {
-                var i = invNTTReductions[r];
+                const i = invNTTReductions[r];
                 r += 1;
                 if (i < 0) {
                     break;
                 }
-                p.cs[@intCast(usize, i)] = feBarrettReduce(p.cs[@intCast(usize, i)]);
+                p.cs[@as(usize, @intCast(i))] = feBarrettReduce(p.cs[@as(usize, @intCast(i))]);
             }
         }
 
@@ -988,8 +988,8 @@ const Poly = struct {
                 //                  = ⌊(2ᵈ/q)x+½⌋ mod⁺ 2ᵈ
                 //                  = ⌊((x << d) + q/2) / q⌋ mod⁺ 2ᵈ
                 //                  = DIV((x << d) + q/2, q) & ((1<<d) - 1)
-                const t = @intCast(u32, p.cs[inOff + i]) << d;
-                in[i] = @intCast(u16, @divFloor(t + Qover2, Q) & twoDm1);
+                const t = @as(u32, @intCast(p.cs[inOff + i])) << d;
+                in[i] = @as(u16, @intCast(@divFloor(t + Qover2, Q) & twoDm1));
             }
 
             // Now we pack the d-bit integers from `in' into out as bytes.
@@ -1000,7 +1000,7 @@ const Poly = struct {
                 comptime var todo: usize = 8;
                 inline while (todo > 0) {
                     const outShift: usize = comptime 8 - todo;
-                    out[outOff + j] |= @truncate(u8, (in[i] >> inShift) << outShift);
+                    out[outOff + j] |= @as(u8, @truncate((in[i] >> inShift) << outShift));
 
                     const done: usize = comptime @min(@min(d, todo), d - inShift);
                     todo -= done;
@@ -1062,7 +1062,7 @@ const Poly = struct {
                 //                    = ⌊(qx + 2ᵈ⁻¹)/2ᵈ⌋
                 //                    = (qx + (1<<(d-1))) >> d
                 const qx = @as(u32, out) * @as(u32, Q);
-                ret.cs[outOff + i] = @intCast(i16, (qx + (1 << (d - 1))) >> d);
+                ret.cs[outOff + i] = @as(i16, @intCast((qx + (1 << (d - 1))) >> d));
             }
 
             inOff += inBatchSize;
@@ -1141,13 +1141,13 @@ const Poly = struct {
         comptime var batchBytes: usize = undefined;
         comptime var mask: T = 0;
         comptime {
-            batchCount = @divTrunc(@typeInfo(T).Int.bits, 2 * eta);
+            batchCount = @divTrunc(@typeInfo(T).int.bits, 2 * eta);
             while (@rem(N, batchCount) != 0 and batchCount > 0) : (batchCount -= 1) {}
             assert(batchCount > 0);
             assert(@rem(2 * eta * batchCount, 8) == 0);
             batchBytes = 2 * eta * batchCount / 8;
 
-            comptime var i = 0;
+            var i = 0;
             while (i < 2 * eta * batchCount) : (i += 1) {
                 mask <<= eta;
                 mask |= 1;
@@ -1177,8 +1177,8 @@ const Poly = struct {
             j = 0;
             inline while (j < batchCount) : (j += 1) {
                 const mask2 = comptime (1 << eta) - 1;
-                const a = @intCast(i16, (d >> (comptime (2 * j * eta))) & mask2);
-                const b = @intCast(i16, (d >> (comptime ((2 * j + 1) * eta))) & mask2);
+                const a = @as(i16, @intCast((d >> (comptime (2 * j * eta))) & mask2));
+                const b = @as(i16, @intCast((d >> (comptime ((2 * j + 1) * eta))) & mask2));
                 ret.cs[batchCount * i + j] = a - b;
             }
         }
@@ -1214,7 +1214,7 @@ const Poly = struct {
 
                 inline for (ts) |t| {
                     if (t < Q) {
-                        ret.cs[i] = @intCast(i16, t);
+                        ret.cs[i] = @as(i16, @intCast(t));
                         i += 1;
 
                         if (i == N) {
@@ -1235,11 +1235,11 @@ const Poly = struct {
         var i: usize = 0;
         var ret: [packedSize]u8 = undefined;
         while (i < comptime N / 2) : (i += 1) {
-            const t0 = @intCast(u16, p.cs[2 * i]);
-            const t1 = @intCast(u16, p.cs[2 * i + 1]);
-            ret[3 * i] = @truncate(u8, t0);
-            ret[3 * i + 1] = @truncate(u8, (t0 >> 8) | (t1 << 4));
-            ret[3 * i + 2] = @truncate(u8, t1 >> 4);
+            const t0 = @as(u16, @intCast(p.cs[2 * i]));
+            const t1 = @as(u16, @intCast(p.cs[2 * i + 1]));
+            ret[3 * i] = @as(u8, @truncate(t0));
+            ret[3 * i + 1] = @as(u8, @truncate((t0 >> 8) | (t1 << 4)));
+            ret[3 * i + 2] = @as(u8, @truncate(t1 >> 4));
         }
         return ret;
     }
@@ -1255,7 +1255,7 @@ const Poly = struct {
             const b1 = @as(i16, buf[3 * i + 1]);
             const b2 = @as(i16, buf[3 * i + 2]);
             ret.cs[2 * i] = b0 | ((b1 & 0xf) << 8);
-            ret.cs[2 * i + 1] = (b1 >> 4) | b2 << 4;
+            ret.cs[2 * i + 1] = (b1 >> 4) | (b2 << 4);
         }
         return ret;
     }
@@ -1360,7 +1360,7 @@ fn Vec(comptime K: u8) type {
             var ret: [compressedSize(d)]u8 = undefined;
             var i: usize = 0;
             while (i < K) : (i += 1) {
-                std.mem.copy(u8, ret[i * cs .. (i + 1) * cs], &v.ps[i].compress(d));
+                @memcpy(ret[i * cs .. (i + 1) * cs], &v.ps[i].compress(d));
             }
             return ret;
         }
@@ -1379,7 +1379,7 @@ fn Vec(comptime K: u8) type {
             var ret: [packedSize]u8 = undefined;
             comptime var i = 0;
             inline while (i < K) : (i += 1) {
-                std.mem.copy(u8, ret[i * Poly.packedSize .. (i + 1) * Poly.packedSize], &v.ps[i].pack());
+                @memcpy(ret[i * Poly.packedSize .. (i + 1) * Poly.packedSize], &v.ps[i].pack());
             }
             return ret;
         }
@@ -1440,7 +1440,7 @@ fn cteq(comptime len: usize, a: *const [len]u8, b: *const [len]u8) usize {
     while (i < len) : (i += 1) {
         ret |= a[i] ^ b[i];
     }
-    return @bitCast(usize, -@as(isize, ret)) >> (@typeInfo(usize).Int.bits - 1);
+    return @as(usize, @bitCast(-@as(isize, ret))) >> (@typeInfo(usize).int.bits - 1);
 }
 
 // Copy src into dst given b = 1.
@@ -1448,7 +1448,7 @@ fn cteq(comptime len: usize, a: *const [len]u8, b: *const [len]u8) usize {
 // Assumes b is either 0 or 1.
 fn cmov(comptime len: usize, dst: *[len]u8, src: *const [len]u8, b: usize) void {
     // TODO Is there an existing function in the stdlib for this?
-    const mask = @bitCast(u8, -@intCast(i8, b));
+    const mask = @as(u8, @bitCast(-@as(i8, @intCast(b))));
     var i: usize = 0;
     while (i < len) : (i += 1) {
         dst[i] ^= mask & (dst[i] ^ src[i]);
@@ -1498,7 +1498,7 @@ test "NTT" {
 
     while (k <= 1000) : (k += 1) {
         var p = Poly.randAbsLeqQ(&rnd);
-        var q = p.toMont().normalize();
+        const q = p.toMont().normalize();
         p = p.ntt();
 
         var i: usize = 0;
@@ -1535,7 +1535,7 @@ test "noise" {
     var seed: [32]u8 = undefined;
     var i: usize = 0;
     while (i < seed.len) : (i += 1) {
-        seed[i] = @intCast(u8, i);
+        seed[i] = @as(u8, @intCast(i));
     }
     try testing.expectEqual(Poly.noise(3, 37, &seed).cs, .{
         0,  0,  1,  -1, 0,  2,  0,  -1, -1, 3,  0,  1,  -2, -2, 0,  1,  -2,
@@ -1582,7 +1582,7 @@ test "uniform sampling" {
     var seed: [32]u8 = undefined;
     var i: usize = 0;
     while (i < seed.len) : (i += 1) {
-        seed[i] = @intCast(u8, i);
+        seed[i] = @as(u8, @intCast(i));
     }
     try testing.expectEqual(Poly.uniform(&seed, 1, 0).cs, .{
         797,  993,  161,  6,    2608, 2385, 2096, 2661, 1676, 247,  2440,
@@ -1627,19 +1627,19 @@ test "Test inner PKE" {
     var pt: [32]u8 = undefined;
     var i: usize = 0;
     while (i < seed.len) : (i += 1) {
-        seed[i] = @intCast(u8, i);
-        pt[i] = @intCast(u8, i + 32);
+        seed[i] = @as(u8, @intCast(i));
+        pt[i] = @as(u8, @intCast(i + 32));
     }
     inline for (modes) |mode| {
         i = 0;
         while (i < 100) : (i += 1) {
             var pk: mode.innerPk = undefined;
             var sk: mode.innerSk = undefined;
-            seed[0] = @intCast(u8, i);
+            seed[0] = @as(u8, @intCast(i));
             mode.innerKeyFromSeed(&seed, &pk, &sk);
             var j: usize = 0;
             while (j < 10) : (j += 1) {
-                seed[1] = @intCast(u8, j);
+                seed[1] = @as(u8, @intCast(j));
                 try testing.expectEqual(sk.decrypt(&pk.encrypt(&pt, &seed)), pt);
             }
         }
@@ -1650,12 +1650,12 @@ test "Test happy flow" {
     var seed: [64]u8 = undefined;
     var i: usize = 0;
     while (i < seed.len) : (i += 1) {
-        seed[i] = @intCast(u8, i);
+        seed[i] = @as(u8, @intCast(i));
     }
     inline for (modes) |mode| {
         i = 0;
         while (i < 100) : (i += 1) {
-            seed[0] = @intCast(u8, i);
+            seed[0] = @as(u8, @intCast(i));
             var kp = mode.keyFromSeed(&seed);
             const sk = mode.PrivateKey.unpack(&kp.sk.pack());
             try testing.expectEqual(sk, kp.sk);
@@ -1663,7 +1663,7 @@ test "Test happy flow" {
             try testing.expectEqual(pk, kp.pk);
             var j: usize = 0;
             while (j < 10) : (j += 1) {
-                seed[1] = @intCast(u8, j);
+                seed[1] = @as(u8, @intCast(j));
                 var ct: [mode.ciphertextSize]u8 = undefined;
                 var ss: [sharedKeySize]u8 = undefined;
                 pk.encapsDeterministically(seed[0..32], &ct, &ss);
@@ -1687,17 +1687,17 @@ test "NIST KAT test" {
         var seed: [48]u8 = undefined;
         var i: usize = 0;
         while (i < seed.len) : (i += 1) {
-            seed[i] = @intCast(u8, i);
+            seed[i] = @as(u8, @intCast(i));
         }
-        var f = sha2.Sha256.init(.{});
-        var fw = f.writer();
+        var f: std.Io.Writer.Hashing(sha2.Sha256) = .init(&.{});
+        const fw = &f.writer;
         var g = NistDRBG.new(&seed);
-        try std.fmt.format(fw, "# {s}\n\n", .{mode.name});
+        try fw.print("# {s}\n\n", .{mode.name});
         i = 0;
         while (i < 100) : (i += 1) {
             g.fill(&seed);
-            try std.fmt.format(fw, "count = {}\n", .{i});
-            try std.fmt.format(fw, "seed = {s}\n", .{std.fmt.fmtSliceHexUpper(&seed)});
+            try fw.print("count = {}\n", .{i});
+            try fw.print("seed = {s}\n", .{std.fmt.bytesToHex(seed, .upper)});
             var g2 = NistDRBG.new(&seed);
 
             // This is not equivalent to g2.fill(kseed[:]).  As the reference
@@ -1714,16 +1714,16 @@ test "NIST KAT test" {
             kp.pk.encapsDeterministically(&eseed, &ct, &ss);
             const ss2 = kp.sk.decaps(&ct);
             try testing.expectEqual(ss2, ss);
-            try std.fmt.format(fw, "pk = {s}\n", .{std.fmt.fmtSliceHexUpper(&kp.pk.pack())});
-            try std.fmt.format(fw, "sk = {s}\n", .{std.fmt.fmtSliceHexUpper(&kp.sk.pack())});
-            try std.fmt.format(fw, "ct = {s}\n", .{std.fmt.fmtSliceHexUpper(&ct)});
-            try std.fmt.format(fw, "ss = {s}\n\n", .{std.fmt.fmtSliceHexUpper(&ss)});
+            try fw.print("pk = {s}\n", .{std.fmt.bytesToHex(kp.pk.pack(), .upper)});
+            try fw.print("sk = {s}\n", .{std.fmt.bytesToHex(kp.sk.pack(), .upper)});
+            try fw.print("ct = {s}\n", .{std.fmt.bytesToHex(ct, .upper)});
+            try fw.print("ss = {s}\n\n", .{std.fmt.bytesToHex(ss, .upper)});
         }
 
         var out: [32]u8 = undefined;
-        f.final(&out);
-        var outHex: [64]u8 = undefined;
-        _ = try std.fmt.bufPrint(&outHex, "{s}", .{std.fmt.fmtSliceHexLower(&out)});
+        try fw.flush();
+        f.hasher.final(&out);
+        const outHex = std.fmt.bytesToHex(out, .lower);
         try testing.expectEqual(outHex, modeHash[1].*);
     }
 }
@@ -1753,7 +1753,7 @@ const NistDRBG = struct {
             g.incV();
             var block: [16]u8 = undefined;
             ctx.encrypt(&block, &g.v);
-            std.mem.copy(u8, buf[i * 16 .. (i + 1) * 16], &block);
+            @memcpy(buf[i * 16 .. (i + 1) * 16], &block);
         }
         if (pd != null) {
             i = 0;
@@ -1761,8 +1761,8 @@ const NistDRBG = struct {
                 buf[i] ^= pd.?[i];
             }
         }
-        std.mem.copy(u8, &g.key, buf[0..32]);
-        std.mem.copy(u8, &g.v, buf[32..48]);
+        @memcpy(&g.key, buf[0..32]);
+        @memcpy(&g.v, buf[32..48]);
     }
 
     // randombytes.
@@ -1775,10 +1775,10 @@ const NistDRBG = struct {
             g.incV();
             ctx.encrypt(&block, &g.v);
             if (dst.len < 16) {
-                std.mem.copy(u8, dst, block[0..dst.len]);
+                @memcpy(dst, block[0..dst.len]);
                 break;
             }
-            std.mem.copy(u8, dst, &block);
+            @memcpy(dst[0..block.len], &block);
             dst = dst[16..dst.len];
         }
         g.update(null);
@@ -1786,7 +1786,7 @@ const NistDRBG = struct {
 
     // randombyte_init(seed, NULL, 256).
     fn new(seed: *[48]u8) NistDRBG {
-        var ret: NistDRBG = NistDRBG{ .key = .{0} ** 32, .v = .{0} ** 16 };
+        var ret: NistDRBG = NistDRBG{ .key = @splat(0), .v = @splat(0) };
         ret.update(seed);
         return ret;
     }
